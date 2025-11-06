@@ -34,6 +34,7 @@ def call_ollama_http(image_bytes: bytes, prompt: str, host: str, model: str) -> 
 
 	payload_body = {
 		"model": model,
+		"stream": False,
 		"messages": [{
 			"role": "user",
 			"content": prompt,
@@ -42,6 +43,8 @@ def call_ollama_http(image_bytes: bytes, prompt: str, host: str, model: str) -> 
 	}
 
 	payload_no_model = {
+		"model": model,
+		"stream": False,
 		"messages": [{
 			"role": "user",
 			"content": prompt,
@@ -63,17 +66,51 @@ def call_ollama_http(image_bytes: bytes, prompt: str, host: str, model: str) -> 
 			try:
 				with urllib.request.urlopen(req, timeout=30) as resp:
 					body = resp.read()
+					# Decode body and handle both single JSON and newline-delimited JSON (streaming chunks)
+					text = body.decode("utf-8", errors="replace")
+					parsed_obj = None
 					try:
-						parsed = json.loads(body)
+						parsed_obj = json.loads(text)
 					except Exception:
-						return body.decode("utf-8", errors="replace")
+						# Try to parse last JSON object from NDJSON / streaming lines
+						last = None
+						for line in text.splitlines():
+							line = line.strip()
+							if not line:
+								continue
+							try:
+								last = json.loads(line)
+							except Exception:
+								# ignore non-json lines
+								continue
+						parsed_obj = last
 
-					if isinstance(parsed, dict):
-						if "message" in parsed and isinstance(parsed["message"], dict) and parsed["message"].get("content"):
-							return parsed["message"]["content"]
-						if parsed.get("response"):
-							return parsed.get("response")
-					return json.dumps(parsed, ensure_ascii=False)
+					if parsed_obj is None:
+						# Nothing JSON-parsable, return raw text
+						return text
+
+					# Extract assistant content from common response shapes
+					def extract_content(obj):
+						if isinstance(obj, dict):
+							# message.content
+							if "message" in obj and isinstance(obj["message"], dict) and obj["message"].get("content"):
+								return obj["message"]["content"]
+							# choices -> message
+							if "choices" in obj and isinstance(obj["choices"], list):
+								for c in obj["choices"]:
+									if isinstance(c, dict):
+										if "message" in c and isinstance(c["message"], dict) and c["message"].get("content"):
+											return c["message"]["content"]
+										if c.get("content"):
+											return c.get("content")
+							# direct fields
+							for key in ("response", "output", "result", "text"):
+								if obj.get(key):
+									return obj.get(key)
+						# fallback to JSON string
+						return json.dumps(obj, ensure_ascii=False)
+
+					return extract_content(parsed_obj)
 
 			except urllib.error.HTTPError as he:
 				try:
@@ -113,7 +150,8 @@ if uploaded_file is not None:
 			try:
 				description = call_ollama_http(image_bytes, prompt, ollama_host, effective_model)
 				st.subheader("Modelio atsakymas (HTTP)")
-				st.write(description)
+				# Display result nicely as markdown
+				st.markdown(description)
 			except Exception as e_http:
 				http_exc = e_http
 				# Try Python client as a last resort
@@ -134,7 +172,8 @@ if uploaded_file is not None:
 						description = str(response)
 
 					st.subheader("Modelio atsakymas (ollama Python klientas)")
-					st.write(description)
+					# Display result nicely as markdown
+					st.markdown(description)
 
 				except Exception as e_client:
 					combined = f"HTTP klaida: {http_exc}\n\nPython klientas klaida: {e_client}\n\n"
