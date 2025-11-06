@@ -1,0 +1,5 @@
+Reikalavimai programai:
+Naudos streamlit sąsajai su naršykle.
+Naudos ollama modelį gemma3:b.
+Vartotojas įkels paveikslėlį ir dirbtinis intelektas apibūdins jo turinį.
+Ollama ir streamlit dokumentaciją gali rasti doc aplanke.

@@ -1,0 +1,5 @@
+streamlit
+Pillow
+# ollama (optional, use HTTP fallback)
+# requirements removed — this file left intentionally empty to revert to initial state
+
